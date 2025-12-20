@@ -1,0 +1,37 @@
+# Auto-Coin 설정 파일
+
+# 분석 대상 코인
+tickers:
+  - BTC-USD   # Bitcoin
+
+# 데이터 설정
+data:
+  period: "5y"        # 5년치 데이터 (코인은 역사가 짧음)
+  cache_hours: 1      # 캐시 유효 시간 (코인은 24시간 거래라 더 자주 업데이트)
+
+# 기술 지표 설정
+indicators:
+  rsi:
+    period: 14
+  macd:
+    fast: 12
+    slow: 26
+    signal: 9
+  bollinger:
+    period: 20
+    std: 2
+  moving_averages:
+    short: 20
+    medium: 50
+    long: 200
+
+# 시그널 설정 (나중에 분석 후 조정)
+signals:
+  buy:
+    rsi_oversold: 30      # 코인은 변동성이 커서 더 낮게?
+    rsi_exit: 50          # 탈출 기준 (조정 필요)
+  sell:
+    rsi_overbought: 70    # 과매수 기준
+    rsi_exit: 50          # 탈출 기준
+  stop_loss: -15          # 손절 기준 (%)
+
