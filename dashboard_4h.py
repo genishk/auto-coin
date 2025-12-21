@@ -357,10 +357,11 @@ def main():
         
         st.divider()
         
-        # 가격 차트
-        st.subheader("📉 가격 차트")
+        # 가격 차트 (실제 거래 결과 기반)
+        st.subheader("📉 가격 차트 (실제 거래)")
         
         chart_df = df[df.index >= signal_cutoff]
+        filtered_trades = [t for t in trades if t['exit_date'] >= signal_cutoff]
         
         fig_home = go.Figure()
         
@@ -373,32 +374,78 @@ def main():
             name='가격'
         ))
         
-        for bs in filtered_buys:
+        # 완료된 거래 표시
+        for trade in filtered_trades:
+            # 첫 매수 (초록색 삼각형)
             fig_home.add_trace(go.Scatter(
-                x=[bs['confirm_date']],
-                y=[bs['confirm_price']],
+                x=[trade['entry_dates'][0]],
+                y=[trade['entry_prices'][0]],
                 mode='markers',
-                marker=dict(color='limegreen', size=14, symbol='triangle-up',
-                            line=dict(color='darkgreen', width=2)),
+                marker=dict(color='limegreen', size=12, symbol='triangle-up',
+                            line=dict(color='darkgreen', width=1)),
                 showlegend=False,
-                hovertemplate=f"매수: ${bs['confirm_price']:,.2f}<br>{bs['confirm_date'].strftime('%Y-%m-%d %H:%M')}<br>RSI: {bs['confirm_rsi']:.1f}<extra></extra>"
+                hovertemplate=f"🟢 매수: ${trade['entry_prices'][0]:,.2f}<br>{trade['entry_dates'][0].strftime('%Y-%m-%d %H:%M')}<extra></extra>"
+            ))
+            
+            # 물타기 (연초록색 작은 원)
+            if trade['num_buys'] > 1:
+                for i in range(1, trade['num_buys']):
+                    fig_home.add_trace(go.Scatter(
+                        x=[trade['entry_dates'][i]],
+                        y=[trade['entry_prices'][i]],
+                        mode='markers',
+                        marker=dict(color='lightgreen', size=8, symbol='circle',
+                                    line=dict(color='green', width=1)),
+                        showlegend=False,
+                        hovertemplate=f"💧 물타기: ${trade['entry_prices'][i]:,.2f}<br>{trade['entry_dates'][i].strftime('%Y-%m-%d %H:%M')}<extra></extra>"
+                    ))
+            
+            # 매도 (익절=파란색, 손절=빨간색)
+            is_stoploss = '손절' in trade['exit_reason']
+            sell_color = 'red' if is_stoploss else 'dodgerblue'
+            sell_symbol = 'x' if is_stoploss else 'triangle-down'
+            sell_label = '🔴 손절' if is_stoploss else '🔵 익절'
+            
+            fig_home.add_trace(go.Scatter(
+                x=[trade['exit_date']],
+                y=[trade['exit_price']],
+                mode='markers',
+                marker=dict(color=sell_color, size=12, symbol=sell_symbol,
+                            line=dict(color='darkblue' if not is_stoploss else 'darkred', width=1)),
+                showlegend=False,
+                hovertemplate=f"{sell_label}: ${trade['exit_price']:,.2f}<br>{trade['exit_date'].strftime('%Y-%m-%d %H:%M')}<br>수익률: {trade['return']:+.1f}%<extra></extra>"
             ))
         
-        for ss in filtered_sells:
-            fig_home.add_trace(go.Scatter(
-                x=[ss['confirm_date']],
-                y=[ss['confirm_price']],
-                mode='markers',
-                marker=dict(color='red', size=14, symbol='triangle-down',
-                            line=dict(color='darkred', width=2)),
-                showlegend=False,
-                hovertemplate=f"매도: ${ss['confirm_price']:,.2f}<br>{ss['confirm_date'].strftime('%Y-%m-%d %H:%M')}<br>RSI: {ss['confirm_rsi']:.1f}<extra></extra>"
-            ))
+        # 현재 보유 포지션 표시 (주황색)
+        for pos in current_positions:
+            if pos['date'] >= signal_cutoff:
+                fig_home.add_trace(go.Scatter(
+                    x=[pos['date']],
+                    y=[pos['price']],
+                    mode='markers',
+                    marker=dict(color='orange', size=12, symbol='diamond',
+                                line=dict(color='darkorange', width=1)),
+                    showlegend=False,
+                    hovertemplate=f"🟠 보유중: ${pos['price']:,.2f}<br>{pos['date'].strftime('%Y-%m-%d %H:%M')}<extra></extra>"
+                ))
+        
+        # 범례 추가 (더미 트레이스)
+        fig_home.add_trace(go.Scatter(x=[None], y=[None], mode='markers',
+            marker=dict(color='limegreen', size=10, symbol='triangle-up'), name='🟢 매수'))
+        fig_home.add_trace(go.Scatter(x=[None], y=[None], mode='markers',
+            marker=dict(color='lightgreen', size=8, symbol='circle'), name='💧 물타기'))
+        fig_home.add_trace(go.Scatter(x=[None], y=[None], mode='markers',
+            marker=dict(color='dodgerblue', size=10, symbol='triangle-down'), name='🔵 익절'))
+        fig_home.add_trace(go.Scatter(x=[None], y=[None], mode='markers',
+            marker=dict(color='red', size=10, symbol='x'), name='🔴 손절'))
+        fig_home.add_trace(go.Scatter(x=[None], y=[None], mode='markers',
+            marker=dict(color='orange', size=10, symbol='diamond'), name='🟠 보유중'))
         
         fig_home.update_layout(
-            height=500,
+            height=550,
             xaxis_rangeslider_visible=False,
-            title=f"가격 차트 (최근 {lookback_days}일)"
+            title=f"가격 차트 - 실제 거래 (최근 {lookback_days}일)",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
         
         st.plotly_chart(fig_home, use_container_width=True)
