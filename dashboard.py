@@ -216,7 +216,7 @@ def main():
     st.sidebar.markdown("---")
     
     # 매도 기준
-    rsi_overbought = st.sidebar.slider("과매수 기준 (매도 시그널)", 50, 95, 80)
+    rsi_overbought = st.sidebar.slider("과매수 기준 (매도 시그널)", 50, 95, 78)
     rsi_sell_exit = st.sidebar.slider("매도 탈출 기준", 10, 70, 30)
     
     st.sidebar.markdown("---")

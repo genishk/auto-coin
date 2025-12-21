@@ -186,12 +186,13 @@ def main():
     print(f"   데이터 포인트: {len(df):,}개")
     print()
     
-    # 파라미터 범위 설정 (최적값 근처 아주 좁게, 간격 2)
-    oversold_range = [24, 26, 28]                 # 3개
-    buy_exit_range = [28, 30, 32, 34]             # 4개
-    overbought_range = [78, 80, 82, 84]           # 4개
-    sell_exit_range = [28, 30, 32, 34]            # 4개
-    # 총 3 × 4 × 4 × 4 = 192개 → 약 2분
+    # 파라미터 범위 설정 (과매수 + 손절 테스트)
+    oversold_range = [26]                         # 고정
+    buy_exit_range = [30]                         # 고정
+    overbought_range = list(range(76, 85))        # 76~84 간격1 = 9개
+    sell_exit_range = [30]                        # 고정
+    stop_loss_range = [-20, -25, -30]             # 손절 3개
+    # 총 9 × 3 = 27개
     
     total_combinations = len(oversold_range) * len(buy_exit_range) * \
                          len(overbought_range) * len(sell_exit_range)
@@ -201,15 +202,16 @@ def main():
     
     results = []
     
-    # Grid Search
+    # Grid Search (손절 포함)
     combinations = list(product(
         oversold_range,
         buy_exit_range,
         overbought_range,
-        sell_exit_range
+        sell_exit_range,
+        stop_loss_range
     ))
     
-    for oversold, buy_exit, overbought, sell_exit in tqdm(combinations, desc="최적화 진행"):
+    for oversold, buy_exit, overbought, sell_exit, stop_loss in tqdm(combinations, desc="최적화 진행"):
         # 매수 탈출이 과매도보다 커야 함
         if buy_exit <= oversold:
             continue
@@ -219,7 +221,7 @@ def main():
         
         buy_signals = find_buy_signals(df, oversold, buy_exit)
         sell_signals = find_sell_signals(df, overbought, sell_exit)
-        trades = simulate_trades(df, buy_signals, sell_signals, stop_loss=-25)
+        trades = simulate_trades(df, buy_signals, sell_signals, stop_loss=stop_loss)
         metrics = calculate_metrics(trades)
         
         results.append({
@@ -227,6 +229,7 @@ def main():
             'buy_exit': buy_exit,
             'overbought': overbought,
             'sell_exit': sell_exit,
+            'stop_loss': stop_loss,
             **metrics
         })
     
@@ -240,16 +243,17 @@ def main():
     top_by_return = results_df.nlargest(20, 'total_return')
     
     print()
-    print("=" * 80)
+    print("=" * 95)
     print("🏆 총 수익률 기준 Top 20")
-    print("=" * 80)
+    print("=" * 95)
     print()
-    print(f"{'순위':<4} {'과매도':<8} {'매수탈출':<10} {'과매수':<8} {'매도탈출':<10} {'거래수':<8} {'승률':<10} {'평균수익':<12} {'총수익률':<12}")
-    print("-" * 80)
+    print(f"{'순위':<4} {'과매도':<7} {'매수탈출':<8} {'과매수':<7} {'매도탈출':<8} {'손절':<7} {'거래':<6} {'승률':<8} {'평균':<9} {'총수익률':<10}")
+    print("-" * 95)
     
     for i, (_, row) in enumerate(top_by_return.iterrows(), 1):
-        print(f"{i:<4} {row['oversold']:<8} {row['buy_exit']:<10} {row['overbought']:<8} {row['sell_exit']:<10} "
-              f"{row['num_trades']:<8} {row['win_rate']:.1f}%{'':<5} {row['avg_return']:+.1f}%{'':<6} {row['total_return']:+.1f}%")
+        stop_loss_val = row.get('stop_loss', -25)
+        print(f"{i:<4} {int(row['oversold']):<7} {int(row['buy_exit']):<8} {int(row['overbought']):<7} {int(row['sell_exit']):<8} "
+              f"{int(stop_loss_val)}%{'':<3} {int(row['num_trades']):<6} {row['win_rate']:.1f}%{'':<3} {row['avg_return']:+.1f}%{'':<4} {row['total_return']:+.1f}%")
     
     print()
     print("=" * 80)
