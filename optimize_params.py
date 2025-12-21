@@ -186,11 +186,12 @@ def main():
     print(f"   데이터 포인트: {len(df):,}개")
     print()
     
-    # 파라미터 범위 설정 (간격 10으로 빠르게)
-    oversold_range = list(range(20, 45, 10))      # 20, 30, 40
-    buy_exit_range = list(range(40, 85, 10))      # 40, 50, 60, 70, 80
-    overbought_range = list(range(60, 85, 10))    # 60, 70, 80
-    sell_exit_range = list(range(20, 55, 10))     # 20, 30, 40, 50
+    # 파라미터 범위 설정 (최적값 근처 아주 좁게, 간격 2)
+    oversold_range = [24, 26, 28]                 # 3개
+    buy_exit_range = [28, 30, 32, 34]             # 4개
+    overbought_range = [78, 80, 82, 84]           # 4개
+    sell_exit_range = [28, 30, 32, 34]            # 4개
+    # 총 3 × 4 × 4 × 4 = 192개 → 약 2분
     
     total_combinations = len(oversold_range) * len(buy_exit_range) * \
                          len(overbought_range) * len(sell_exit_range)

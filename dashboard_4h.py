@@ -214,7 +214,7 @@ def main():
     st.sidebar.subheader("📊 RSI 기준 설정")
     
     # 매수 기준
-    rsi_oversold = st.sidebar.slider("과매도 기준 (매수 시그널)", 10, 50, 25)
+    rsi_oversold = st.sidebar.slider("과매도 기준 (매수 시그널)", 10, 50, 26)
     rsi_buy_exit = st.sidebar.slider("매수 탈출 기준", 15, 100, 30)
     
     st.sidebar.markdown("---")
