@@ -316,31 +316,33 @@ def main():
         st.subheader(f"🔔 시그널 내역 (최근 {lookback_days}일)")
         
         signal_cutoff = df.index[-1] - pd.Timedelta(days=lookback_days)
-        filtered_buys = [bs for bs in buy_signals if bs['signal_date'] >= signal_cutoff]
-        filtered_sells = [ss for ss in sell_signals if ss['signal_date'] >= signal_cutoff]
+        filtered_buys = [bs for bs in buy_signals if bs['confirm_date'] >= signal_cutoff]
+        filtered_sells = [ss for ss in sell_signals if ss['confirm_date'] >= signal_cutoff]
         
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("**🟢 매수 시그널**")
+            st.markdown("**🟢 매수 시그널** (실제 매수 시점)")
             if filtered_buys:
                 buy_df = pd.DataFrame([{
-                    '날짜': bs['signal_date'].strftime('%Y-%m-%d'),
-                    '가격': f"${bs['signal_price']:,.2f}",
-                    'RSI': f"{bs['signal_rsi']:.1f}"
-                } for bs in sorted(filtered_buys, key=lambda x: x['signal_date'], reverse=True)])
+                    '매수일': bs['confirm_date'].strftime('%Y-%m-%d %H:%M'),
+                    '매수가': f"${bs['confirm_price']:,.2f}",
+                    '탈출RSI': f"{bs['confirm_rsi']:.1f}",
+                    '시그널시작': bs['signal_date'].strftime('%m-%d'),
+                } for bs in sorted(filtered_buys, key=lambda x: x['confirm_date'], reverse=True)])
                 st.dataframe(buy_df, use_container_width=True, hide_index=True)
             else:
                 st.info("없음")
         
         with col2:
-            st.markdown("**🔴 매도 시그널**")
+            st.markdown("**🔴 매도 시그널** (실제 매도 시점)")
             if filtered_sells:
                 sell_df = pd.DataFrame([{
-                    '날짜': ss['signal_date'].strftime('%Y-%m-%d'),
-                    '가격': f"${ss['signal_price']:,.2f}",
-                    'RSI': f"{ss['signal_rsi']:.1f}"
-                } for ss in sorted(filtered_sells, key=lambda x: x['signal_date'], reverse=True)])
+                    '매도일': ss['confirm_date'].strftime('%Y-%m-%d %H:%M'),
+                    '매도가': f"${ss['confirm_price']:,.2f}",
+                    '탈출RSI': f"{ss['confirm_rsi']:.1f}",
+                    '시그널시작': ss['signal_date'].strftime('%m-%d'),
+                } for ss in sorted(filtered_sells, key=lambda x: x['confirm_date'], reverse=True)])
                 st.dataframe(sell_df, use_container_width=True, hide_index=True)
             else:
                 st.info("없음")
