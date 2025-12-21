@@ -211,13 +211,13 @@ def main():
     
     # 매수 기준
     rsi_oversold = st.sidebar.slider("과매도 기준 (매수 시그널)", 10, 40, 35)
-    rsi_buy_exit = st.sidebar.slider("매수 탈출 기준", 40, 90, 70)
+    rsi_buy_exit = st.sidebar.slider("매수 탈출 기준", 35, 100, 50)
     
     st.sidebar.markdown("---")
     
     # 매도 기준
     rsi_overbought = st.sidebar.slider("과매수 기준 (매도 시그널)", 60, 90, 70)
-    rsi_sell_exit = st.sidebar.slider("매도 탈출 기준", 10, 60, 35)
+    rsi_sell_exit = st.sidebar.slider("매도 탈출 기준", 0, 65, 50)
     
     st.sidebar.markdown("---")
     stop_loss = st.sidebar.slider("손절 기준 (%)", -40, -10, -25)
