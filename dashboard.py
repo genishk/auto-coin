@@ -138,11 +138,14 @@ def find_sell_signals(df: pd.DataFrame, rsi_overbought: float = 70, rsi_exit: fl
     return sell_signals
 
 
-def simulate_trades(df: pd.DataFrame, buy_signals: list, sell_signals: list, stop_loss: float = -15):
+def simulate_trades(df: pd.DataFrame, buy_signals: list, sell_signals: list, stop_loss: float = -25):
     """
-    물타기 전략 시뮬레이션
+    물타기 전략 시뮬레이션 (수익일 때만 익절)
     - 매수 시그널 시 추가 매수 (물타기)
-    - 매도 조건: RSI 매도 시그널 또는 손절
+    - 매도 조건: 
+      1) RSI 매도 시그널 + 수익인 경우 → 익절
+      2) RSI 매도 시그널 + 손해인 경우 → 매도 안 함 (계속 보유)
+      3) 손절 라인 도달 → 무조건 손절
     - confirm_date/confirm_price 기준 (실제 매수/매도 시점)
     """
     # confirm_date 기준으로 매수/매도 시점 결정 (실제 거래 시점)
@@ -164,11 +167,17 @@ def simulate_trades(df: pd.DataFrame, buy_signals: list, sell_signals: list, sto
             exit_reason = None
             exit_price = current_price
             
-            if current_date in all_sell_dates:
-                exit_reason = "RSI 매도"
-                exit_price = all_sell_dates[current_date]['confirm_price']
-            elif current_return <= stop_loss:
-                exit_reason = f"{stop_loss}% 손절"
+            # 1) 손절은 무조건 (최우선)
+            if current_return <= stop_loss:
+                exit_reason = "손절"
+            # 2) RSI 매도 시그널 + 수익인 경우만 익절
+            elif current_date in all_sell_dates:
+                sell_price = all_sell_dates[current_date]['confirm_price']
+                sell_return = (sell_price / avg_price - 1) * 100
+                if sell_return > 0:  # 수익일 때만 매도!
+                    exit_reason = "익절"
+                    exit_price = sell_price
+                # 손해면 매도하지 않음 (계속 보유)
             
             if exit_reason:
                 final_return = (exit_price / avg_price - 1) * 100
