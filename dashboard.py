@@ -210,14 +210,14 @@ def main():
     st.sidebar.subheader("📊 RSI 기준 설정")
     
     # 매수 기준
-    rsi_oversold = st.sidebar.slider("과매도 기준 (매수 시그널)", 10, 40, 35)
-    rsi_buy_exit = st.sidebar.slider("매수 탈출 기준", 35, 100, 50)
+    rsi_oversold = st.sidebar.slider("과매도 기준 (매수 시그널)", 10, 50, 25)
+    rsi_buy_exit = st.sidebar.slider("매수 탈출 기준", 15, 100, 30)
     
     st.sidebar.markdown("---")
     
     # 매도 기준
-    rsi_overbought = st.sidebar.slider("과매수 기준 (매도 시그널)", 60, 90, 70)
-    rsi_sell_exit = st.sidebar.slider("매도 탈출 기준", 0, 65, 50)
+    rsi_overbought = st.sidebar.slider("과매수 기준 (매도 시그널)", 50, 95, 80)
+    rsi_sell_exit = st.sidebar.slider("매도 탈출 기준", 10, 70, 30)
     
     st.sidebar.markdown("---")
     stop_loss = st.sidebar.slider("손절 기준 (%)", -40, -10, -25)
@@ -453,7 +453,7 @@ def main():
         # RSI 탈출 기준 슬라이더 (매수)
         buy_exit_slider = st.slider(
             "RSI 탈출 기준 (매수)", 
-            20, 90, 70,
+            15, 100, 30,
             help="과매도 구간 후 RSI가 이 값 이상이면 '매수 시그널'로 확정",
             key="buy_exit_slider"
         )
@@ -548,7 +548,7 @@ def main():
         # RSI 탈출 기준 슬라이더 (매도)
         sell_exit_slider = st.slider(
             "RSI 탈출 기준 (매도)", 
-            10, 80, 35,
+            10, 70, 30,
             help="과매수 구간 후 RSI가 이 값 이하이면 '매도 시그널'로 확정",
             key="sell_exit_slider"
         )
