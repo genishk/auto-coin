@@ -500,15 +500,15 @@ def main():
             hovertemplate='%{x}<br>가격: $%{y:,.2f}<br>RSI 시그널<extra></extra>'
         ))
         
-        # 실제 매수 시그널 (진한 초록색)
+        # 실제 매수 시그널 (진한 초록색) - confirm_date 기준 (실제 매수 시점!)
         fig_buy.add_trace(go.Scatter(
-            x=[bs['signal_date'] for bs in actual_buy_signals],
-            y=[bs['signal_price'] for bs in actual_buy_signals],
+            x=[bs['confirm_date'] for bs in actual_buy_signals],
+            y=[bs['confirm_price'] for bs in actual_buy_signals],
             mode='markers',
-            name=f'★ 매수 시그널 ({len(actual_buy_signals)}회)',
-            marker=dict(color='limegreen', size=10, symbol='circle',
+            name=f'★ 실제 매수 ({len(actual_buy_signals)}회)',
+            marker=dict(color='limegreen', size=12, symbol='triangle-up',
                         line=dict(color='darkgreen', width=2)),
-            hovertemplate='%{x}<br>가격: $%{y:,.2f}<br>★ 매수 시그널<extra></extra>'
+            hovertemplate='%{x}<br>매수가: $%{y:,.2f}<br>★ 실제 매수 시점<extra></extra>'
         ))
         
         fig_buy.update_layout(
@@ -534,13 +534,12 @@ def main():
         # 최근 매수 시그널 리스트
         if actual_buy_signals:
             st.markdown("**★ 최근 매수 시그널**")
-            recent_buys = sorted(actual_buy_signals, key=lambda x: x['signal_date'], reverse=True)[:10]
+            recent_buys = sorted(actual_buy_signals, key=lambda x: x['confirm_date'], reverse=True)[:10]
             buy_table = pd.DataFrame([{
-                '시그널 날짜': bs['signal_date'].strftime('%Y-%m-%d'),
-                '시그널 가격': f"${bs['signal_price']:,.2f}",
-                '확인 날짜': bs['confirm_date'].strftime('%Y-%m-%d'),
-                '확인 가격': f"${bs['confirm_price']:,.2f}",
-                'RSI (확인 시)': f"{bs['confirm_rsi']:.1f}"
+                '★실제 매수일': bs['confirm_date'].strftime('%Y-%m-%d %H:%M'),
+                '★매수가': f"${bs['confirm_price']:,.2f}",
+                'RSI': f"{bs['confirm_rsi']:.1f}",
+                '(참고)과매도일': bs['signal_date'].strftime('%m-%d'),
             } for bs in recent_buys])
             st.dataframe(buy_table, use_container_width=True, hide_index=True)
         
@@ -596,15 +595,15 @@ def main():
             hovertemplate='%{x}<br>가격: $%{y:,.2f}<br>RSI 시그널<extra></extra>'
         ))
         
-        # 실제 매도 시그널 (진한 빨간색)
+        # 실제 매도 시그널 (진한 빨간색) - confirm_date 기준 (실제 매도 시점!)
         fig_sell.add_trace(go.Scatter(
-            x=[ss['signal_date'] for ss in actual_sell_signals],
-            y=[ss['signal_price'] for ss in actual_sell_signals],
+            x=[ss['confirm_date'] for ss in actual_sell_signals],
+            y=[ss['confirm_price'] for ss in actual_sell_signals],
             mode='markers',
-            name=f'★ 매도 시그널 ({len(actual_sell_signals)}회)',
-            marker=dict(color='red', size=10, symbol='circle',
+            name=f'★ 실제 매도 ({len(actual_sell_signals)}회)',
+            marker=dict(color='red', size=12, symbol='triangle-down',
                         line=dict(color='darkred', width=2)),
-            hovertemplate='%{x}<br>가격: $%{y:,.2f}<br>★ 매도 시그널<extra></extra>'
+            hovertemplate='%{x}<br>매도가: $%{y:,.2f}<br>★ 실제 매도 시점<extra></extra>'
         ))
         
         fig_sell.update_layout(
@@ -630,13 +629,12 @@ def main():
         # 최근 매도 시그널 리스트
         if actual_sell_signals:
             st.markdown("**★ 최근 매도 시그널**")
-            recent_sells = sorted(actual_sell_signals, key=lambda x: x['signal_date'], reverse=True)[:10]
+            recent_sells = sorted(actual_sell_signals, key=lambda x: x['confirm_date'], reverse=True)[:10]
             sell_table = pd.DataFrame([{
-                '시그널 날짜': ss['signal_date'].strftime('%Y-%m-%d'),
-                '시그널 가격': f"${ss['signal_price']:,.2f}",
-                '확인 날짜': ss['confirm_date'].strftime('%Y-%m-%d'),
-                '확인 가격': f"${ss['confirm_price']:,.2f}",
-                'RSI (확인 시)': f"{ss['confirm_rsi']:.1f}"
+                '★실제 매도일': ss['confirm_date'].strftime('%Y-%m-%d %H:%M'),
+                '★매도가': f"${ss['confirm_price']:,.2f}",
+                'RSI': f"{ss['confirm_rsi']:.1f}",
+                '(참고)과매수일': ss['signal_date'].strftime('%m-%d'),
             } for ss in recent_sells])
             st.dataframe(sell_table, use_container_width=True, hide_index=True)
         
@@ -655,19 +653,19 @@ def main():
         ))
         
         fig_combined.add_trace(go.Scatter(
-            x=[bs['signal_date'] for bs in actual_buy_signals],
-            y=[bs['signal_price'] for bs in actual_buy_signals],
+            x=[bs['confirm_date'] for bs in actual_buy_signals],
+            y=[bs['confirm_price'] for bs in actual_buy_signals],
             mode='markers',
-            name=f'🟢 매수 ({len(actual_buy_signals)}회)',
+            name=f'🟢 실제 매수 ({len(actual_buy_signals)}회)',
             marker=dict(color='limegreen', size=12, symbol='triangle-up',
                         line=dict(color='darkgreen', width=2))
         ))
         
         fig_combined.add_trace(go.Scatter(
-            x=[ss['signal_date'] for ss in actual_sell_signals],
-            y=[ss['signal_price'] for ss in actual_sell_signals],
+            x=[ss['confirm_date'] for ss in actual_sell_signals],
+            y=[ss['confirm_price'] for ss in actual_sell_signals],
             mode='markers',
-            name=f'🔴 매도 ({len(actual_sell_signals)}회)',
+            name=f'🔴 실제 매도 ({len(actual_sell_signals)}회)',
             marker=dict(color='red', size=12, symbol='triangle-down',
                         line=dict(color='darkred', width=2))
         ))
@@ -817,20 +815,20 @@ def main():
         ))
         
         fig_signals.add_trace(go.Scatter(
-            x=[bs['signal_date'] for bs in buy_signals],
-            y=[bs['signal_price'] for bs in buy_signals],
+            x=[bs['confirm_date'] for bs in buy_signals],
+            y=[bs['confirm_price'] for bs in buy_signals],
             mode='markers',
-            name=f'🟢 매수 ({len(buy_signals)}회)',
+            name=f'🟢 실제 매수 ({len(buy_signals)}회)',
             marker=dict(color='limegreen', size=10, symbol='triangle-up',
                         line=dict(color='darkgreen', width=2)),
             hovertemplate='%{x}<br>매수: $%{y:,.2f}<extra>🟢 매수</extra>'
         ))
         
         fig_signals.add_trace(go.Scatter(
-            x=[ss['signal_date'] for ss in sell_signals],
-            y=[ss['signal_price'] for ss in sell_signals],
+            x=[ss['confirm_date'] for ss in sell_signals],
+            y=[ss['confirm_price'] for ss in sell_signals],
             mode='markers',
-            name=f'🔴 매도 ({len(sell_signals)}회)',
+            name=f'🔴 실제 매도 ({len(sell_signals)}회)',
             marker=dict(color='red', size=10, symbol='triangle-down',
                         line=dict(color='darkred', width=2)),
             hovertemplate='%{x}<br>매도: $%{y:,.2f}<extra>🔴 매도</extra>'
