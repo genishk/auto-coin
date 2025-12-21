@@ -371,24 +371,24 @@ def main():
         
         for bs in filtered_buys:
             fig_home.add_trace(go.Scatter(
-                x=[bs['signal_date']],
-                y=[bs['signal_price']],
+                x=[bs['confirm_date']],
+                y=[bs['confirm_price']],
                 mode='markers',
                 marker=dict(color='limegreen', size=14, symbol='triangle-up',
                             line=dict(color='darkgreen', width=2)),
                 showlegend=False,
-                hovertemplate=f"매수: ${bs['signal_price']:,.2f}<br>{bs['signal_date'].strftime('%Y-%m-%d')}<br>RSI: {bs['signal_rsi']:.1f}<extra></extra>"
+                hovertemplate=f"매수: ${bs['confirm_price']:,.2f}<br>{bs['confirm_date'].strftime('%Y-%m-%d')}<br>RSI: {bs['confirm_rsi']:.1f}<extra></extra>"
             ))
         
         for ss in filtered_sells:
             fig_home.add_trace(go.Scatter(
-                x=[ss['signal_date']],
-                y=[ss['signal_price']],
+                x=[ss['confirm_date']],
+                y=[ss['confirm_price']],
                 mode='markers',
                 marker=dict(color='red', size=14, symbol='triangle-down',
                             line=dict(color='darkred', width=2)),
                 showlegend=False,
-                hovertemplate=f"매도: ${ss['signal_price']:,.2f}<br>{ss['signal_date'].strftime('%Y-%m-%d')}<br>RSI: {ss['signal_rsi']:.1f}<extra></extra>"
+                hovertemplate=f"매도: ${ss['confirm_price']:,.2f}<br>{ss['confirm_date'].strftime('%Y-%m-%d')}<br>RSI: {ss['confirm_rsi']:.1f}<extra></extra>"
             ))
         
         fig_home.update_layout(
