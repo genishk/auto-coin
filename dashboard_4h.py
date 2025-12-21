@@ -506,8 +506,8 @@ def main():
             y=[bs['confirm_price'] for bs in actual_buy_signals],
             mode='markers',
             name=f'★ 실제 매수 ({len(actual_buy_signals)}회)',
-            marker=dict(color='limegreen', size=12, symbol='triangle-up',
-                        line=dict(color='darkgreen', width=2)),
+            marker=dict(color='limegreen', size=6, symbol='circle',
+                        line=dict(color='darkgreen', width=1)),
             hovertemplate='%{x}<br>매수가: $%{y:,.2f}<br>★ 실제 매수 시점<extra></extra>'
         ))
         
@@ -601,8 +601,8 @@ def main():
             y=[ss['confirm_price'] for ss in actual_sell_signals],
             mode='markers',
             name=f'★ 실제 매도 ({len(actual_sell_signals)}회)',
-            marker=dict(color='red', size=12, symbol='triangle-down',
-                        line=dict(color='darkred', width=2)),
+            marker=dict(color='red', size=6, symbol='circle',
+                        line=dict(color='darkred', width=1)),
             hovertemplate='%{x}<br>매도가: $%{y:,.2f}<br>★ 실제 매도 시점<extra></extra>'
         ))
         
@@ -657,8 +657,8 @@ def main():
             y=[bs['confirm_price'] for bs in actual_buy_signals],
             mode='markers',
             name=f'🟢 실제 매수 ({len(actual_buy_signals)}회)',
-            marker=dict(color='limegreen', size=12, symbol='triangle-up',
-                        line=dict(color='darkgreen', width=2))
+            marker=dict(color='limegreen', size=8, symbol='circle',
+                        line=dict(color='darkgreen', width=1))
         ))
         
         fig_combined.add_trace(go.Scatter(
@@ -666,8 +666,8 @@ def main():
             y=[ss['confirm_price'] for ss in actual_sell_signals],
             mode='markers',
             name=f'🔴 실제 매도 ({len(actual_sell_signals)}회)',
-            marker=dict(color='red', size=12, symbol='triangle-down',
-                        line=dict(color='darkred', width=2))
+            marker=dict(color='red', size=8, symbol='circle',
+                        line=dict(color='darkred', width=1))
         ))
         
         fig_combined.update_layout(
