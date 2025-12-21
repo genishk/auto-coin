@@ -143,9 +143,11 @@ def simulate_trades(df: pd.DataFrame, buy_signals: list, sell_signals: list, sto
     물타기 전략 시뮬레이션
     - 매수 시그널 시 추가 매수 (물타기)
     - 매도 조건: RSI 매도 시그널 또는 손절
+    - confirm_date/confirm_price 기준 (실제 매수/매도 시점)
     """
-    all_buy_dates = {bs['signal_date']: bs for bs in buy_signals}
-    all_sell_dates = {ss['signal_date']: ss for ss in sell_signals}
+    # confirm_date 기준으로 매수/매도 시점 결정 (실제 거래 시점)
+    all_buy_dates = {bs['confirm_date']: bs for bs in buy_signals}
+    all_sell_dates = {ss['confirm_date']: ss for ss in sell_signals}
     
     trades = []
     positions = []
@@ -164,7 +166,7 @@ def simulate_trades(df: pd.DataFrame, buy_signals: list, sell_signals: list, sto
             
             if current_date in all_sell_dates:
                 exit_reason = "RSI 매도"
-                exit_price = all_sell_dates[current_date]['signal_price']
+                exit_price = all_sell_dates[current_date]['confirm_price']
             elif current_return <= stop_loss:
                 exit_reason = f"{stop_loss}% 손절"
             
@@ -185,7 +187,7 @@ def simulate_trades(df: pd.DataFrame, buy_signals: list, sell_signals: list, sto
         if current_date in all_buy_dates:
             positions.append({
                 'date': current_date,
-                'price': all_buy_dates[current_date]['signal_price']
+                'price': all_buy_dates[current_date]['confirm_price']
             })
     
     return trades, positions
