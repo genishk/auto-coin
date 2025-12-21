@@ -513,7 +513,7 @@ def main():
         # RSI 탈출 기준 슬라이더 (매수)
         buy_exit_slider = st.slider(
             "RSI 탈출 기준 (매수)", 
-            15, 100, 30,
+            15, 100, 40,
             help="과매도 구간 후 RSI가 이 값 이상이면 '매수 시그널'로 확정",
             key="buy_exit_slider"
         )
@@ -608,7 +608,7 @@ def main():
         # RSI 탈출 기준 슬라이더 (매도)
         sell_exit_slider = st.slider(
             "RSI 탈출 기준 (매도)", 
-            10, 70, 30,
+            10, 70, 55,
             help="과매수 구간 후 RSI가 이 값 이하이면 '매도 시그널'로 확정",
             key="sell_exit_slider"
         )
