@@ -4,6 +4,7 @@ streamlit run dashboard_4h.py
 
 4시간봉 기준 분석 (하루 6번 체크)
 - RSI 기반 매수/매도 시그널
+- MA40/200 골든크로스 필터 (하락장 보호)
 - 물타기 전략 시뮬레이션
 - 시그널 기준 슬라이더로 최적값 탐색
 """
@@ -60,14 +61,20 @@ def load_data(ticker: str):
     if df is not None:
         ti = TechnicalIndicators(config.get('indicators', {}))
         df = ti.calculate_all(df)
+        
+        # 골든크로스용 이동평균선 추가
+        df['MA40'] = df['Close'].rolling(window=40).mean()
+        df['MA200'] = df['Close'].rolling(window=200).mean()
+        df['golden_cross'] = df['MA40'] > df['MA200']
     
     return df
 
 
-def find_buy_signals(df: pd.DataFrame, rsi_oversold: float = 30, rsi_exit: float = 50):
+def find_buy_signals(df: pd.DataFrame, rsi_oversold: float = 30, rsi_exit: float = 50, use_golden_cross: bool = True):
     """
-    매수 시그널 찾기 (RSI 탈출 방식)
+    매수 시그널 찾기 (RSI 탈출 방식 + 골든크로스 필터)
     조건: RSI < rsi_oversold 후 → RSI >= rsi_exit 탈출 시 매수
+    골든크로스 필터: MA40 > MA200 일 때만 매수 허용
     """
     buy_signals = []
     
@@ -82,6 +89,12 @@ def find_buy_signals(df: pd.DataFrame, rsi_oversold: float = 30, rsi_exit: float
         if pd.isna(rsi):
             continue
         
+        # 골든크로스 체크
+        golden_cross_ok = True
+        if use_golden_cross and 'golden_cross' in df.columns:
+            gc = df['golden_cross'].iloc[idx]
+            golden_cross_ok = gc if not pd.isna(gc) else False
+        
         if rsi < rsi_oversold:
             in_oversold = True
             last_signal_date = df.index[idx]
@@ -89,14 +102,17 @@ def find_buy_signals(df: pd.DataFrame, rsi_oversold: float = 30, rsi_exit: float
             last_signal_rsi = rsi
         else:
             if in_oversold and rsi >= rsi_exit and last_signal_date is not None:
-                buy_signals.append({
-                    'signal_date': last_signal_date,
-                    'signal_price': last_signal_price,
-                    'signal_rsi': last_signal_rsi,
-                    'confirm_date': df.index[idx],
-                    'confirm_price': df['Close'].iloc[idx],
-                    'confirm_rsi': rsi
-                })
+                # 골든크로스 필터: 상승장에서만 매수
+                if golden_cross_ok:
+                    buy_signals.append({
+                        'signal_date': last_signal_date,
+                        'signal_price': last_signal_price,
+                        'signal_rsi': last_signal_rsi,
+                        'confirm_date': df.index[idx],
+                        'confirm_price': df['Close'].iloc[idx],
+                        'confirm_rsi': rsi,
+                        'golden_cross': golden_cross_ok
+                    })
                 in_oversold = False
                 last_signal_date = None
     
@@ -235,6 +251,11 @@ def main():
     st.sidebar.markdown("---")
     stop_loss = st.sidebar.slider("손절 기준 (%)", -40, -10, -25)
     
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📈 추세 필터 (골든크로스)")
+    use_golden_cross = st.sidebar.checkbox("골든크로스 필터 사용", value=True, 
+                                           help="MA40 > MA200 일 때만 매수 (하락장 보호)")
+    
     # 데이터 로드
     with st.spinner(f"{ticker} 데이터 로딩 중..."):
         df = load_data(ticker)
@@ -243,11 +264,20 @@ def main():
         st.error(f"❌ {ticker} 데이터를 불러올 수 없습니다.")
         return
     
+    # 현재 골든크로스 상태
+    current_gc = df['golden_cross'].iloc[-1] if 'golden_cross' in df.columns else False
+    
     st.sidebar.success(f"✅ {len(df)}일 데이터 로드")
     st.sidebar.info(f"📅 {df.index[0].date()} ~ {df.index[-1].date()}")
     
-    # 시그널 계산
-    buy_signals = find_buy_signals(df, rsi_oversold, rsi_buy_exit)
+    if use_golden_cross:
+        if current_gc:
+            st.sidebar.success("🟢 골든크로스 (매수 허용)")
+        else:
+            st.sidebar.warning("🔴 데드크로스 (매수 차단)")
+    
+    # 시그널 계산 (골든크로스 필터 적용)
+    buy_signals = find_buy_signals(df, rsi_oversold, rsi_buy_exit, use_golden_cross)
     sell_signals = find_sell_signals(df, rsi_overbought, rsi_sell_exit)
     trades, current_positions = simulate_trades(df, buy_signals, sell_signals, stop_loss)
     
@@ -269,20 +299,24 @@ def main():
         change = (current / prev - 1) * 100
         rsi_now = df['rsi'].iloc[-1]
         
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
             st.metric("현재가", f"${current:,.2f}", f"{change:+.2f}%")
         with col2:
             rsi_status = "🔴 과매도" if rsi_now < rsi_oversold else ("🟢 과매수" if rsi_now > rsi_overbought else "⚪ 중립")
             st.metric("RSI", f"{rsi_now:.1f}", delta=rsi_status)
         with col3:
+            # 골든크로스 상태
+            gc_status = "🟢 상승장" if current_gc else "🔴 하락장"
+            st.metric("추세 (MA40/200)", gc_status)
+        with col4:
             if current_positions:
                 avg_p = sum(p['price'] for p in current_positions) / len(current_positions)
                 unrealized = (current / avg_p - 1) * 100
                 st.metric("보유 상태", f"{len(current_positions)}회 물타기", delta=f"{unrealized:+.1f}%")
             else:
                 st.metric("보유 상태", "대기 중")
-        with col4:
+        with col5:
             if trades:
                 win_rate = len([t for t in trades if t['return'] > 0]) / len(trades) * 100
                 st.metric("전체 승률", f"{win_rate:.0f}%")
@@ -382,6 +416,24 @@ def main():
             close=chart_df['Close'],
             name='가격'
         ))
+        
+        # MA40/MA200 라인 추가 (골든크로스 시각화)
+        if 'MA40' in chart_df.columns:
+            fig_home.add_trace(go.Scatter(
+                x=chart_df.index,
+                y=chart_df['MA40'],
+                mode='lines',
+                line=dict(color='orange', width=1.5),
+                name='MA40'
+            ))
+        if 'MA200' in chart_df.columns:
+            fig_home.add_trace(go.Scatter(
+                x=chart_df.index,
+                y=chart_df['MA200'],
+                mode='lines',
+                line=dict(color='purple', width=1.5),
+                name='MA200'
+            ))
         
         # 완료된 거래 표시
         for trade in filtered_trades:
@@ -529,8 +581,8 @@ def main():
                     'rsi': rsi
                 })
         
-        # 실제 매수 시그널 (탈출 확인)
-        actual_buy_signals = find_buy_signals(df, rsi_oversold, buy_exit_slider)
+        # 실제 매수 시그널 (탈출 확인 + 골든크로스 필터)
+        actual_buy_signals = find_buy_signals(df, rsi_oversold, buy_exit_slider, use_golden_cross)
         buy_signal_dates = set(bs['signal_date'] for bs in actual_buy_signals)
         
         # 매수 시그널 차트
