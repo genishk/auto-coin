@@ -104,15 +104,15 @@ def find_buy_signals(df: pd.DataFrame, rsi_oversold: float = 30, rsi_exit: float
             if in_oversold and rsi >= rsi_exit and last_signal_date is not None:
                 # 골든크로스 필터: 상승장에서만 매수
                 if golden_cross_ok:
-                    buy_signals.append({
-                        'signal_date': last_signal_date,
-                        'signal_price': last_signal_price,
-                        'signal_rsi': last_signal_rsi,
-                        'confirm_date': df.index[idx],
-                        'confirm_price': df['Close'].iloc[idx],
+                buy_signals.append({
+                    'signal_date': last_signal_date,
+                    'signal_price': last_signal_price,
+                    'signal_rsi': last_signal_rsi,
+                    'confirm_date': df.index[idx],
+                    'confirm_price': df['Close'].iloc[idx],
                         'confirm_rsi': rsi,
                         'golden_cross': golden_cross_ok
-                    })
+                })
                 in_oversold = False
                 last_signal_date = None
     
@@ -447,17 +447,17 @@ def main():
                 showlegend=False,
                 hovertemplate=f"🟢 매수: ${trade['entry_prices'][0]:,.2f}<br>{trade['entry_dates'][0].strftime('%Y-%m-%d %H:%M')}<extra></extra>"
             ))
-            
+        
             # 물타기 (연초록색 작은 원)
             if trade['num_buys'] > 1:
                 for i in range(1, trade['num_buys']):
-                    fig_home.add_trace(go.Scatter(
+            fig_home.add_trace(go.Scatter(
                         x=[trade['entry_dates'][i]],
                         y=[trade['entry_prices'][i]],
-                        mode='markers',
+                mode='markers',
                         marker=dict(color='lightgreen', size=8, symbol='circle',
                                     line=dict(color='green', width=1)),
-                        showlegend=False,
+                showlegend=False,
                         hovertemplate=f"💧 물타기: ${trade['entry_prices'][i]:,.2f}<br>{trade['entry_dates'][i].strftime('%Y-%m-%d %H:%M')}<extra></extra>"
                     ))
             
@@ -488,7 +488,7 @@ def main():
                                 line=dict(color='darkorange', width=1)),
                     showlegend=False,
                     hovertemplate=f"🟠 보유중: ${pos['price']:,.2f}<br>{pos['date'].strftime('%Y-%m-%d %H:%M')}<extra></extra>"
-                ))
+            ))
         
         # 범례 추가 (더미 트레이스)
         fig_home.add_trace(go.Scatter(x=[None], y=[None], mode='markers',
