@@ -1,0 +1,90 @@
+name: Coin Signal Check (4H Dual)
+
+on:
+  # 4시간마다 자동 실행 (UTC 기준)
+  # UTC 0, 4, 8, 12, 16, 20시 = 뉴욕 7PM, 11PM, 3AM, 7AM, 11AM, 3PM
+  schedule:
+    - cron: '15 0,4,8,12,16,20 * * *'  # 매 4시간봉 마감 15분 후
+  
+  # 수동 실행 가능 (테스트용)
+  workflow_dispatch:
+
+jobs:
+  check-signals:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run dual signal check
+      id: signal_check
+      run: python scripts/check_4h_dual.py
+    
+    - name: Send email notification
+      if: steps.signal_check.outputs.signal_type != 'none'
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 587
+        username: ${{ secrets.EMAIL_USERNAME }}
+        password: ${{ secrets.EMAIL_PASSWORD }}
+        subject: |
+          ${{ steps.signal_check.outputs.signal_type == 'long_entry' && '🟢 BTC 롱 진입!' || 
+              steps.signal_check.outputs.signal_type == 'long_exit' && '🟡 BTC 롱 청산!' || 
+              steps.signal_check.outputs.signal_type == 'short_entry' && '🔴 BTC 숏 진입!' || 
+              steps.signal_check.outputs.signal_type == 'short_exit' && '🟡 BTC 숏 청산!' || 
+              '₿ BTC 시그널' }} - Dual 4H (${{ steps.signal_check.outputs.current_time }})
+        to: ${{ secrets.EMAIL_TO }}
+        from: Auto-Coin Dual <${{ secrets.EMAIL_USERNAME }}>
+        body: |
+          ═══════════════════════════════════════════════
+          🔄 Auto-Coin 롱/숏 듀얼 4시간봉 리포트
+          ═══════════════════════════════════════════════
+
+          📅 시간: ${{ steps.signal_check.outputs.current_time }} (UTC)
+
+          💰 가격 정보 (4시간봉)
+          ─────────────────────────────────────────────
+          시가: $${{ steps.signal_check.outputs.open_price }}
+          고가: $${{ steps.signal_check.outputs.high_price }}
+          저가: $${{ steps.signal_check.outputs.low_price }}
+          종가: $${{ steps.signal_check.outputs.close_price }}
+
+          📈 기술 지표
+          ─────────────────────────────────────────────
+          RSI: ${{ steps.signal_check.outputs.current_rsi }}
+          MA100: $${{ steps.signal_check.outputs.ma100 }}
+          MA200: $${{ steps.signal_check.outputs.ma200 }}
+          추세: ${{ steps.signal_check.outputs.trend == 'GC' && '🟢 상승장 (골든크로스)' || '🔴 하락장 (데드크로스)' }}
+
+          🚨 시그널
+          ─────────────────────────────────────────────
+          ${{ steps.signal_check.outputs.signal_type == 'long_entry' && format('🟢 롱 진입 시그널!\n   RSI 과매도 탈출 + 골든크로스\n   진입 가격: ${0}', steps.signal_check.outputs.signal_price) || 
+              steps.signal_check.outputs.signal_type == 'long_exit' && format('🟡 롱 청산 시그널!\n   RSI 과매수 후 하락\n   청산 가격: ${0}', steps.signal_check.outputs.signal_price) || 
+              steps.signal_check.outputs.signal_type == 'short_entry' && format('🔴 숏 진입 시그널!\n   {0}\n   진입 가격: ${1}', steps.signal_check.outputs.trend == 'GC' && 'RSI peak 후 하향' || 'DC RSI 55 하향', steps.signal_check.outputs.signal_price) || 
+              steps.signal_check.outputs.signal_type == 'short_exit' && format('🟡 숏 청산 시그널!\n   RSI 과매도 탈출\n   청산 가격: ${0}', steps.signal_check.outputs.signal_price) || 
+              '📭 시그널 없음' }}
+
+          📋 전략 (하락장 방어 최적화)
+          ─────────────────────────────────────────────
+          • 롱: RSI<35→40 탈출 + GC(MA100>MA200)
+          • 숏 (GC): RSI 78+ 후 65 하향
+          • 숏 (DC): RSI 55 하향 돌파
+          • 손절: 롱 -25%, 숏 -15%
+
+          ═══════════════════════════════════════════════
+          
+          대시보드: streamlit run dashboard_4h_dual.py
+          GitHub: https://github.com/genishk/auto-coin
+

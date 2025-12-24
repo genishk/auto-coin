@@ -1,0 +1,58 @@
+[1mdiff --git a/dashboard_4h.py b/dashboard_4h.py[m
+[1mindex 2263b2f..ceafcf4 100644[m
+[1m--- a/dashboard_4h.py[m
+[1m+++ b/dashboard_4h.py[m
+[36m@@ -104,15 +104,15 @@[m [mdef find_buy_signals(df: pd.DataFrame, rsi_oversold: float = 30, rsi_exit: float[m
+             if in_oversold and rsi >= rsi_exit and last_signal_date is not None:[m
+                 # 골든크로스 필터: 상승장에서만 매수[m
+                 if golden_cross_ok:[m
+[31m-                    buy_signals.append({[m
+[31m-                        'signal_date': last_signal_date,[m
+[31m-                        'signal_price': last_signal_price,[m
+[31m-                        'signal_rsi': last_signal_rsi,[m
+[31m-                        'confirm_date': df.index[idx],[m
+[31m-                        'confirm_price': df['Close'].iloc[idx],[m
+[32m+[m[32m                buy_signals.append({[m
+[32m+[m[32m                    'signal_date': last_signal_date,[m
+[32m+[m[32m                    'signal_price': last_signal_price,[m
+[32m+[m[32m                    'signal_rsi': last_signal_rsi,[m
+[32m+[m[32m                    'confirm_date': df.index[idx],[m
+[32m+[m[32m                    'confirm_price': df['Close'].iloc[idx],[m
+                         'confirm_rsi': rsi,[m
+                         'golden_cross': golden_cross_ok[m
+[31m-                    })[m
+[32m+[m[32m                })[m
+                 in_oversold = False[m
+                 last_signal_date = None[m
+     [m
+[36m@@ -447,17 +447,17 @@[m [mdef main():[m
+                 showlegend=False,[m
+                 hovertemplate=f"🟢 매수: ${trade['entry_prices'][0]:,.2f}<br>{trade['entry_dates'][0].strftime('%Y-%m-%d %H:%M')}<extra></extra>"[m
+             ))[m
+[31m-            [m
+[32m+[m[41m        [m
+             # 물타기 (연초록색 작은 원)[m
+             if trade['num_buys'] > 1:[m
+                 for i in range(1, trade['num_buys']):[m
+[31m-                    fig_home.add_trace(go.Scatter([m
+[32m+[m[32m            fig_home.add_trace(go.Scatter([m
+                         x=[trade['entry_dates'][i]],[m
+                         y=[trade['entry_prices'][i]],[m
+[31m-                        mode='markers',[m
+[32m+[m[32m                mode='markers',[m
+                         marker=dict(color='lightgreen', size=8, symbol='circle',[m
+                                     line=dict(color='green', width=1)),[m
+[31m-                        showlegend=False,[m
+[32m+[m[32m                showlegend=False,[m
+                         hovertemplate=f"💧 물타기: ${trade['entry_prices'][i]:,.2f}<br>{trade['entry_dates'][i].strftime('%Y-%m-%d %H:%M')}<extra></extra>"[m
+                     ))[m
+             [m
+[36m@@ -488,7 +488,7 @@[m [mdef main():[m
+                                 line=dict(color='darkorange', width=1)),[m
+                     showlegend=False,[m
+                     hovertemplate=f"🟠 보유중: ${pos['price']:,.2f}<br>{pos['date'].strftime('%Y-%m-%d %H:%M')}<extra></extra>"[m
+[31m-                ))[m
+[32m+[m[32m            ))[m
+         [m
+         # 범례 추가 (더미 트레이스)[m
+         fig_home.add_trace(go.Scatter(x=[None], y=[None], mode='markers',[m

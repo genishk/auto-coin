@@ -176,8 +176,9 @@ def simulate_trades(df: pd.DataFrame, buy_signals: list, sell_signals: list, sto
         current_price = df['Close'].iloc[idx]
         
         if positions:
-            total_cost = sum(p['price'] for p in positions)
-            avg_price = total_cost / len(positions)
+            # 동일 금액 투자 방식 평균가 계산
+            total_quantity = sum(1 / p['price'] for p in positions)
+            avg_price = len(positions) / total_quantity
             current_return = (current_price / avg_price - 1) * 100
             
             exit_reason = None
@@ -307,7 +308,9 @@ def main():
             st.metric("추세 (MA40/200)", gc_status)
         with col4:
             if current_positions:
-                avg_p = sum(p['price'] for p in current_positions) / len(current_positions)
+                # 동일 금액 투자 방식 평균가 계산
+                total_qty = sum(1 / p['price'] for p in current_positions)
+                avg_p = len(current_positions) / total_qty
                 unrealized = (current / avg_p - 1) * 100
                 st.metric("보유 상태", f"{len(current_positions)}회 물타기", delta=f"{unrealized:+.1f}%")
             else:
@@ -322,7 +325,9 @@ def main():
         # 현재 포지션 상세
         if current_positions:
             st.subheader("💰 현재 보유 포지션")
-            avg_price = sum(p['price'] for p in current_positions) / len(current_positions)
+            # 동일 금액 투자 방식 평균가 계산
+            total_quantity = sum(1 / p['price'] for p in current_positions)
+            avg_price = len(current_positions) / total_quantity
             unrealized = (current / avg_price - 1) * 100
             
             col1, col2, col3 = st.columns(3)
@@ -1009,7 +1014,9 @@ def main():
         
         # 현재 포지션 표시
         if current_positions:
-            avg_price = sum(p['price'] for p in current_positions) / len(current_positions)
+            # 동일 금액 투자 방식 평균가 계산
+            total_quantity = sum(1 / p['price'] for p in current_positions)
+            avg_price = len(current_positions) / total_quantity
             for i, p in enumerate(current_positions):
                 size = 16 if i == 0 else 12
                 fig_strategy.add_trace(go.Scatter(
