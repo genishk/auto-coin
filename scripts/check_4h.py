@@ -68,24 +68,21 @@ def main():
     lookback = min(30, len(df))
     recent_df = df.iloc[-lookback:]
     
-    # 매수 시그널 확인 (RSI 과매도 후 탈출 + 골든크로스)
+    # 매수 시그널 확인 (RSI 과매도 후 탈출) - 골든크로스 필터 OFF (5년 테스트 결과 OFF가 +146% 더 좋음)
     in_oversold = False
     for i in range(len(recent_df) - 1):
         rsi = recent_df['rsi'].iloc[i]
-        gc = recent_df['golden_cross'].iloc[i]
         
         if rsi < rsi_oversold_threshold:
             in_oversold = True
         elif in_oversold and rsi >= rsi_buy_exit_threshold:
             # 가장 최근 4시간봉이 탈출 시점인지 확인
             if i == len(recent_df) - 2:
-                # 골든크로스 상태에서만 매수
-                if gc:
-                    buy_signal = True
+                buy_signal = True
             in_oversold = False
     
     # 현재 봉에서 탈출 확인
-    if in_oversold and current_rsi >= rsi_buy_exit_threshold and current_gc:
+    if in_oversold and current_rsi >= rsi_buy_exit_threshold:
         buy_signal = True
     
     # 매도 시그널 확인 (RSI 과매수 후 하락) - 골든크로스 무관

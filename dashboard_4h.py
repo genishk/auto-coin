@@ -66,6 +66,11 @@ def load_data(ticker: str):
         df['MA40'] = df['Close'].rolling(window=40).mean()
         df['MA200'] = df['Close'].rolling(window=200).mean()
         df['golden_cross'] = df['MA40'] > df['MA200']
+        
+        # MACD 추가 (헷징용)
+        exp12 = df['Close'].ewm(span=12).mean()
+        exp26 = df['Close'].ewm(span=26).mean()
+        df['MACD'] = exp12 - exp26
     
     return df
 
@@ -158,15 +163,24 @@ def find_sell_signals(df: pd.DataFrame, rsi_overbought: float = 70, rsi_exit: fl
     return sell_signals
 
 
-def simulate_trades(df: pd.DataFrame, buy_signals: list, sell_signals: list, stop_loss: float = -25):
+def simulate_trades(df: pd.DataFrame, buy_signals: list, sell_signals: list, stop_loss: float = -25,
+                    use_hedge: bool = False, hedge_threshold: int = 2, hedge_upgrade_interval: int = 3,
+                    hedge_ratio: float = 1.0, hedge_profit: float = 8, hedge_stop: float = -15):
     """
-    물타기 전략 시뮬레이션 (수익일 때만 익절)
+    물타기 전략 시뮬레이션 (수익일 때만 익절) + 숏 헷징 옵션
+    
+    롱 전략:
     - 매수 시그널 시 추가 매수 (물타기)
     - 매도 조건: 
       1) RSI 매도 시그널 + 수익인 경우 → 익절
       2) RSI 매도 시그널 + 손해인 경우 → 매도 안 함 (계속 보유)
       3) 손절 라인 도달 → 무조건 손절
-    - confirm_date/confirm_price 기준 (실제 매수/매도 시점)
+    
+    숏 헷징 (use_hedge=True 시):
+    - 물타기 hedge_threshold회 시점에서 MACD < 0이면 숏 진입
+    - hedge_upgrade_interval회마다 업그레이드 (기존 숏 청산 후 새 숏 진입)
+    - 숏 투자금 = 현재 롱 투자금 × hedge_ratio
+    - 숏 청산: 익절 hedge_profit% / 손절 hedge_stop% / 롱 청산시
     """
     # confirm_date 기준으로 매수/매도 시점 결정 (실제 거래 시점)
     all_buy_dates = {bs['confirm_date']: bs for bs in buy_signals}
@@ -175,9 +189,48 @@ def simulate_trades(df: pd.DataFrame, buy_signals: list, sell_signals: list, sto
     trades = []
     positions = []
     
+    # 헷징 관련
+    hedge_trades = []
+    current_hedge = None  # {'entry_date', 'entry_price', 'entry_idx'}
+    
     for idx in range(len(df)):
         current_date = df.index[idx]
         current_price = df['Close'].iloc[idx]
+        current_high = df['High'].iloc[idx]
+        current_low = df['Low'].iloc[idx]
+        
+        # ===== 숏 헷징 청산 체크 =====
+        if use_hedge and current_hedge is not None:
+            short_return = (current_hedge['entry_price'] - current_price) / current_hedge['entry_price'] * 100
+            short_exit_reason = None
+            short_exit_price = current_price
+            
+            # 익절 체크 (저가 기준)
+            target_price = current_hedge['entry_price'] * (1 - hedge_profit / 100)
+            if current_low <= target_price:
+                short_exit_reason = f"숏익절+{hedge_profit}%"
+                short_exit_price = target_price
+                short_return = hedge_profit
+            
+            # 손절 체크 (고가 기준)
+            stop_price = current_hedge['entry_price'] * (1 - hedge_stop / 100)
+            if short_exit_reason is None and current_high >= stop_price:
+                short_exit_reason = f"숏손절{hedge_stop}%"
+                short_exit_price = stop_price
+                short_return = hedge_stop
+            
+            if short_exit_reason:
+                hedge_trades.append({
+                    'entry_date': current_hedge['entry_date'],
+                    'entry_price': current_hedge['entry_price'],
+                    'exit_date': current_date,
+                    'exit_price': short_exit_price,
+                    'return': short_return,
+                    'exit_reason': short_exit_reason,
+                    'long_num_buys': current_hedge['long_num_buys'],
+                    'invested': current_hedge.get('invested', current_hedge['long_num_buys'] * 1000)
+                })
+                current_hedge = None
         
         if positions:
             # 동일 금액 투자 방식 평균가 계산
@@ -212,6 +265,22 @@ def simulate_trades(df: pd.DataFrame, buy_signals: list, sell_signals: list, sto
                     'return': final_return,
                     'exit_reason': exit_reason
                 })
+                
+                # 롱 청산시 숏도 같이 청산
+                if use_hedge and current_hedge is not None:
+                    short_return = (current_hedge['entry_price'] - exit_price) / current_hedge['entry_price'] * 100
+                    hedge_trades.append({
+                        'entry_date': current_hedge['entry_date'],
+                        'entry_price': current_hedge['entry_price'],
+                        'exit_date': current_date,
+                        'exit_price': exit_price,
+                        'return': short_return,
+                        'exit_reason': "롱청산시",
+                        'long_num_buys': current_hedge['long_num_buys'],
+                        'invested': current_hedge.get('invested', current_hedge['long_num_buys'] * 1000)
+                    })
+                    current_hedge = None
+                
                 positions = []
         
         if current_date in all_buy_dates:
@@ -219,8 +288,54 @@ def simulate_trades(df: pd.DataFrame, buy_signals: list, sell_signals: list, sto
                 'date': current_date,
                 'price': all_buy_dates[current_date]['confirm_price']
             })
+            
+            num_buys = len(positions)
+            
+            # ===== 숏 헷징 진입/업그레이드 체크 =====
+            if use_hedge:
+                should_hedge = False
+                
+                # 첫 헷징: hedge_threshold회 도달 (예: 2회 = 첫 물타기)
+                if num_buys == hedge_threshold and current_hedge is None:
+                    should_hedge = True
+                
+                # 업그레이드: hedge_upgrade_interval회마다 (예: 3회마다)
+                elif num_buys > hedge_threshold and hedge_upgrade_interval > 0:
+                    if (num_buys - hedge_threshold) % hedge_upgrade_interval == 0:
+                        should_hedge = True
+                
+                if should_hedge:
+                    # MACD < 0 체크
+                    macd_val = df['MACD'].iloc[idx] if 'MACD' in df.columns else 0
+                    if macd_val < 0:
+                        # 기존 숏 청산 (업그레이드 시)
+                        if current_hedge is not None:
+                            short_return = (current_hedge['entry_price'] - current_price) / current_hedge['entry_price'] * 100
+                            hedge_trades.append({
+                                'entry_date': current_hedge['entry_date'],
+                                'entry_price': current_hedge['entry_price'],
+                                'exit_date': current_date,
+                                'exit_price': current_price,
+                                'return': short_return,
+                                'exit_reason': "업그레이드",
+                                'long_num_buys': current_hedge['long_num_buys'],
+                                'invested': current_hedge.get('invested', num_buys * 1000 * hedge_ratio)
+                            })
+                        
+                        # 새 숏 진입 (롱 투자금 × 비율)
+                        long_invested = num_buys * 1000  # 각 매수 $1,000
+                        short_invested = long_invested * hedge_ratio
+                        
+                        current_hedge = {
+                            'entry_date': current_date,
+                            'entry_price': current_price,
+                            'entry_idx': idx,
+                            'long_num_buys': num_buys,
+                            'invested': short_invested
+                        }
     
-    return trades, positions
+    # 현재 헷징 포지션도 반환
+    return trades, positions, hedge_trades if use_hedge else [], current_hedge
 
 
 def main():
@@ -254,8 +369,25 @@ def main():
     
     st.sidebar.markdown("---")
     st.sidebar.subheader("📈 추세 필터 (골든크로스)")
-    use_golden_cross = st.sidebar.checkbox("골든크로스 필터 사용", value=True, 
-                                           help="MA40 > MA200 일 때만 매수 (하락장 보호)")
+    use_golden_cross = st.sidebar.checkbox("골든크로스 필터 사용", value=False, 
+                                           help="MA40 > MA200 일 때만 매수 (OFF 권장: 5년 테스트 결과 OFF가 +146% 더 좋음)")
+    
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🛡️ 숏 헷징 전략")
+    use_hedge = st.sidebar.checkbox("숏 헷징 사용", value=True, 
+                                    help="물타기 시 MACD<0이면 숏으로 리스크 헷징")
+    if use_hedge:
+        hedge_threshold = st.sidebar.slider("헷징 시작 (물타기 횟수)", 1, 5, 2, 
+                                            help="첫 물타기=2, 두번째 물타기=3")
+        hedge_upgrade_interval = st.sidebar.slider("업그레이드 간격 (회)", 0, 10, 3,
+                                                   help="0=업그레이드 없음, 3=3회마다 업그레이드")
+        hedge_ratio = st.sidebar.slider("숏 비율 (롱 투자금 대비 %)", 50, 150, 100,
+                                        help="100=롱 투자금과 동일") / 100.0
+        hedge_profit = st.sidebar.slider("숏 익절 (%)", 3, 15, 8)
+        hedge_stop = st.sidebar.slider("숏 손절 (%)", -25, -5, -15)
+    else:
+        hedge_threshold, hedge_upgrade_interval, hedge_ratio = 2, 3, 1.0
+        hedge_profit, hedge_stop = 8, -15
     
     # 데이터 로드
     with st.spinner(f"{ticker} 데이터 로딩 중..."):
@@ -280,11 +412,17 @@ def main():
     # 시그널 계산 (골든크로스 필터 적용)
     buy_signals = find_buy_signals(df, rsi_oversold, rsi_buy_exit, use_golden_cross)
     sell_signals = find_sell_signals(df, rsi_overbought, rsi_sell_exit)
-    trades, current_positions = simulate_trades(df, buy_signals, sell_signals, stop_loss)
+    trades, current_positions, hedge_trades, current_hedge = simulate_trades(
+        df, buy_signals, sell_signals, stop_loss,
+        use_hedge=use_hedge, hedge_threshold=hedge_threshold,
+        hedge_upgrade_interval=hedge_upgrade_interval, hedge_ratio=hedge_ratio,
+        hedge_profit=hedge_profit, hedge_stop=hedge_stop
+    )
     
     # 탭 구성
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 현재 상태",
+        "📈 통합 뷰",
         "🔬 패턴 분석",
         "📈 RSI 분석",
         "🎯 매수/매도 시그널",
@@ -328,32 +466,77 @@ def main():
         
         # 현재 포지션 상세
         if current_positions:
-            st.subheader("💰 현재 보유 포지션")
+            st.subheader("💰 현재 보유 포지션 (롱)")
             # 동일 금액 투자 방식 평균가 계산
             total_quantity = sum(1 / p['price'] for p in current_positions)
             avg_price = len(current_positions) / total_quantity
             unrealized = (current / avg_price - 1) * 100
+            num_positions = len(current_positions)
+            water_count = num_positions - 1  # 물타기 횟수 = 총 매수 - 1
             
-            col1, col2, col3 = st.columns(3)
+            CAPITAL_PER_ENTRY = 1000
+            invested_amount = num_positions * CAPITAL_PER_ENTRY
+            unrealized_profit = invested_amount * (unrealized / 100)
+            
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
                 st.metric("평균 매수가", f"${avg_price:,.2f}")
             with col2:
-                st.metric("물타기 횟수", f"{len(current_positions)}회")
+                st.metric("물타기 횟수", f"{water_count}회")
             with col3:
+                st.metric("투자금", f"${invested_amount:,}")
+            with col4:
                 color = "🟢" if unrealized >= 0 else "🔴"
-                st.metric("미실현 손익", f"{color} {unrealized:+.1f}%")
+                st.metric("미실현 손익", f"{color} ${unrealized_profit:+,.0f} ({unrealized:+.1f}%)")
             
-            st.markdown("**📋 매수 내역**")
+            st.markdown("**📋 롱 매수 내역**")
             pos_df = pd.DataFrame([{
                 '매수일': p['date'].strftime('%Y-%m-%d'),
                 '매수가': f"${p['price']:,.2f}",
+                '투자금': f"${CAPITAL_PER_ENTRY:,}",
                 '현재 손익': f"{(current/p['price']-1)*100:+.1f}%"
             } for p in current_positions])
             st.dataframe(pos_df, use_container_width=True, hide_index=True)
             
+            # 현재 헷징 상태
+            if use_hedge and current_hedge is not None:
+                st.markdown("---")
+                st.subheader("🛡️ 현재 숏 헷징 포지션")
+                
+                short_entry_price = current_hedge['entry_price']
+                short_return = (short_entry_price - current) / short_entry_price * 100
+                short_invested = current_hedge.get('invested', current_hedge['long_num_buys'] * CAPITAL_PER_ENTRY)
+                short_unrealized = short_invested * (short_return / 100)
+                
+                target_price = short_entry_price * (1 - hedge_profit / 100)
+                stop_price = short_entry_price * (1 - hedge_stop / 100)
+                
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("숏 진입가", f"${short_entry_price:,.2f}")
+                with col2:
+                    st.metric("숏 투자금", f"${short_invested:,.0f}")
+                with col3:
+                    color = "🟢" if short_return >= 0 else "🔴"
+                    st.metric("숏 미실현", f"{color} ${short_unrealized:+,.0f} ({short_return:+.1f}%)")
+                with col4:
+                    st.metric("진입일", current_hedge['entry_date'].strftime('%Y-%m-%d'))
+                
+                st.success(f"""
+                **🎯 숏 청산 조건:**
+                - 익절 목표: ${target_price:,.2f} (+{hedge_profit}%)
+                - 손절 라인: ${stop_price:,.2f} ({hedge_stop}%)
+                - 롱 청산시 같이 청산
+                """)
+            elif use_hedge and water_count >= hedge_threshold - 1:
+                # 헷징 조건 체크 (물타기 횟수 충족했지만 MACD 미충족)
+                macd_now = df['MACD'].iloc[-1] if 'MACD' in df.columns else 0
+                if macd_now >= 0:
+                    st.warning(f"⚠️ 헷징 미발동: MACD={macd_now:.0f} ≥ 0 (조건: MACD < 0)")
+            
             st.info(f"""
-            **📤 매도 조건:**
-            - RSI > {rsi_overbought} 발생 후 → RSI ≤ {rsi_sell_exit} 탈출 시 매도
+            **📤 롱 매도 조건:**
+            - RSI > {rsi_overbought} 발생 후 → RSI ≤ {rsi_sell_exit} 탈출 시 매도 (수익일 때만)
             - 평단가 대비 {stop_loss}% 손절 (현재: {unrealized:+.1f}%)
             """)
         else:
@@ -518,43 +701,451 @@ def main():
         
         st.divider()
         
-        # 전략 성과
+        # 전략 성과 (실제 금액 기준)
         filtered_trades = [t for t in trades if t['exit_date'] >= signal_cutoff]
+        filtered_hedges = [h for h in hedge_trades if h['exit_date'] >= signal_cutoff] if use_hedge else []
         
-        st.subheader(f"📈 전략 성과 (최근 {lookback_days}일)")
+        st.subheader(f"💹 전략 성과 (최근 {lookback_days}일) - 실제 금액 기준")
+        st.caption("각 매수마다 동일 금액($1,000) 투자 가정")
         
         if filtered_trades:
-            total_trades = len(filtered_trades)
-            wins = len([t for t in filtered_trades if t['return'] > 0])
-            total_return = sum(t['return'] for t in filtered_trades)
-            avg_return = total_return / total_trades
+            # 실제 금액 기준 계산
+            CAPITAL_PER_ENTRY = 1000
             
+            # 롱 손익 (실제 금액)
+            long_invested = sum(t['num_buys'] * CAPITAL_PER_ENTRY for t in filtered_trades)
+            long_profit = sum(t['num_buys'] * CAPITAL_PER_ENTRY * t['return'] / 100 for t in filtered_trades)
+            long_return_pct = (long_profit / long_invested * 100) if long_invested > 0 else 0
+            
+            # 숏 손익 (실제 금액) - 롱 투자금의 50%
+            if use_hedge and filtered_hedges:
+                # invested 필드 사용 (새 전략: 롱 투자금 × 비율)
+                short_profit = sum(
+                    h.get('invested', h['long_num_buys'] * CAPITAL_PER_ENTRY) * h['return'] / 100 
+                    for h in filtered_hedges
+                )
+                short_invested = sum(h.get('invested', h['long_num_buys'] * CAPITAL_PER_ENTRY) for h in filtered_hedges)
+            else:
+                short_profit = 0
+                short_invested = 0
+            
+            total_profit = long_profit + short_profit
+            total_return_pct = (total_profit / long_invested * 100) if long_invested > 0 else 0
+            
+            total_trades_count = len(filtered_trades)
+            wins = len([t for t in filtered_trades if t['return'] > 0])
+            
+            # 롱 성과
+            st.markdown("##### 🟢 롱 성과")
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("총 거래", f"{total_trades}회")
+                st.metric("롱 거래", f"{total_trades_count}회")
             with col2:
-                st.metric("승률", f"{wins/total_trades*100:.0f}%")
+                st.metric("승률", f"{wins/total_trades_count*100:.0f}%")
             with col3:
-                st.metric("평균 수익률", f"{avg_return:+.1f}%")
+                st.metric("롱 손익", f"${long_profit:+,.0f}")
             with col4:
-                st.metric("누적 수익률", f"{total_return:+.1f}%")
+                st.metric("롱 수익률", f"{long_return_pct:+.1f}%")
             
-            st.markdown("**📋 거래 내역**")
+            # 숏 헷징 성과
+            if use_hedge:
+                st.markdown("##### 🔴 숏 헷징 성과")
+                if filtered_hedges:
+                    hedge_wins = len([h for h in filtered_hedges if h['return'] > 0])
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("헷징 발동", f"{len(filtered_hedges)}회")
+                    with col2:
+                        st.metric("숏 승률", f"{hedge_wins/len(filtered_hedges)*100:.0f}%")
+                    with col3:
+                        st.metric("숏 손익", f"${short_profit:+,.0f}")
+                    with col4:
+                        hedge_return_pct = (short_profit / short_invested * 100) if short_invested > 0 else 0
+                        st.metric("숏 수익률", f"{hedge_return_pct:+.1f}%")
+                else:
+                    st.info("헷징 발동 없음 (물타기 조건 미충족 or MACD≥0)")
+            
+            # 총 성과
+            st.markdown("##### 💰 총 성과")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("총 투자금", f"${long_invested:,.0f}")
+            with col2:
+                color = "🟢" if total_profit >= 0 else "🔴"
+                st.metric("총 손익", f"{color} ${total_profit:+,.0f}")
+            with col3:
+                st.metric("금액 수익률", f"{total_return_pct:+.2f}%", 
+                         delta=f"숏 헷징 효과: ${short_profit:+,.0f}" if use_hedge else None)
+            
+            # 거래 내역
+            st.markdown("**📋 롱 거래 내역**")
             sorted_trades = sorted(filtered_trades, key=lambda x: x['exit_date'], reverse=True)
             trade_df = pd.DataFrame([{
                 '기간': f"{t['entry_dates'][0].strftime('%Y-%m-%d')} ~ {t['exit_date'].strftime('%Y-%m-%d')}",
-                '물타기': f"{t['num_buys']}회",
+                '물타기': f"{t['num_buys']-1}회",
+                '투자금': f"${t['num_buys'] * CAPITAL_PER_ENTRY:,}",
                 '평단가': f"${t['avg_price']:,.2f}",
                 '매도가': f"${t['exit_price']:,.2f}",
                 '수익률': f"{t['return']:+.1f}%",
+                '손익': f"${t['num_buys'] * CAPITAL_PER_ENTRY * t['return'] / 100:+,.0f}",
                 '사유': t['exit_reason']
             } for t in sorted_trades])
             st.dataframe(trade_df, use_container_width=True, hide_index=True)
+            
+            # 헷징 거래 내역
+            if use_hedge and filtered_hedges:
+                st.markdown("**📋 숏 헷징 내역**")
+                hedge_df = pd.DataFrame([{
+                    '진입': h['entry_date'].strftime('%Y-%m-%d'),
+                    '청산': h['exit_date'].strftime('%Y-%m-%d'),
+                    '진입가': f"${h['entry_price']:,.2f}",
+                    '청산가': f"${h['exit_price']:,.2f}",
+                    '수익률': f"{h['return']:+.1f}%",
+                    '투자금': f"${h.get('invested', h['long_num_buys'] * CAPITAL_PER_ENTRY):,.0f}",
+                    '손익': f"${h.get('invested', h['long_num_buys'] * CAPITAL_PER_ENTRY) * h['return'] / 100:+,.0f}",
+                    '사유': h['exit_reason']
+                } for h in sorted(filtered_hedges, key=lambda x: x['exit_date'], reverse=True)])
+                st.dataframe(hedge_df, use_container_width=True, hide_index=True)
         else:
             st.info(f"최근 {lookback_days}일간 완료된 거래 없음")
     
-    # ===== 탭 2: 패턴 분석 (주식과 동일한 형식) =====
+    # ===== 탭 2: 통합 뷰 =====
     with tab2:
+        st.header("📈 통합 뷰 - 전체 액션 한눈에 보기")
+        
+        # 통합 액션 리스트 생성
+        all_actions = []
+        
+        # 1. 롱 거래에서 액션 추출
+        for trade in trades:
+            entry_dates = trade['entry_dates']
+            entry_prices = trade['entry_prices']
+            
+            for i, (date, price) in enumerate(zip(entry_dates, entry_prices)):
+                if i == 0:
+                    action_type = "🟢 롱 진입"
+                else:
+                    action_type = f"🔵 물타기 ({i+1}회)"
+                
+                all_actions.append({
+                    'date': date,
+                    'action': action_type,
+                    'price': price,
+                    'position': 'LONG',
+                    'num_buys': i + 1,
+                    'invested': (i + 1) * CAPITAL_PER_ENTRY
+                })
+            
+            # 청산
+            exit_emoji = "🟡" if trade['exit_reason'] == "익절" else "🔴"
+            all_actions.append({
+                'date': trade['exit_date'],
+                'action': f"{exit_emoji} 롱 {trade['exit_reason']}",
+                'price': trade['exit_price'],
+                'position': 'CLOSE',
+                'num_buys': trade['num_buys'],
+                'invested': trade['num_buys'] * CAPITAL_PER_ENTRY,
+                'return': trade['return']
+            })
+        
+        # 2. 현재 보유 중인 롱 포지션
+        if current_positions:
+            for i, pos in enumerate(current_positions):
+                if i == 0:
+                    action_type = "🟢 롱 진입"
+                else:
+                    action_type = f"🔵 물타기 ({i+1}회)"
+                
+                all_actions.append({
+                    'date': pos['date'],
+                    'action': action_type,
+                    'price': pos['price'],
+                    'position': 'LONG (보유중)',
+                    'num_buys': i + 1,
+                    'invested': (i + 1) * CAPITAL_PER_ENTRY
+                })
+        
+        # 3. 숏 헷징 거래
+        for hedge in hedge_trades:
+            # 숏 진입
+            all_actions.append({
+                'date': hedge['entry_date'],
+                'action': f"🟣 숏 헷징 진입 ({hedge['long_num_buys']}회)",
+                'price': hedge['entry_price'],
+                'position': 'SHORT',
+                'invested': hedge.get('invested', hedge['long_num_buys'] * CAPITAL_PER_ENTRY)
+            })
+            
+            # 숏 청산
+            if "업그레이드" in hedge['exit_reason']:
+                exit_emoji = "🔄"
+            elif "익절" in hedge['exit_reason']:
+                exit_emoji = "💰"
+            elif "손절" in hedge['exit_reason']:
+                exit_emoji = "⛔"
+            else:
+                exit_emoji = "🔚"
+            
+            all_actions.append({
+                'date': hedge['exit_date'],
+                'action': f"{exit_emoji} 숏 {hedge['exit_reason']}",
+                'price': hedge['exit_price'],
+                'position': 'SHORT CLOSE',
+                'invested': hedge.get('invested', hedge['long_num_buys'] * CAPITAL_PER_ENTRY),
+                'return': hedge['return']
+            })
+        
+        # 4. 현재 보유 중인 숏 포지션
+        if current_hedge:
+            all_actions.append({
+                'date': current_hedge['entry_date'],
+                'action': f"🟣 숏 헷징 진입 ({current_hedge['long_num_buys']}회)",
+                'price': current_hedge['entry_price'],
+                'position': 'SHORT (보유중)',
+                'invested': current_hedge.get('invested', current_hedge['long_num_buys'] * CAPITAL_PER_ENTRY)
+            })
+        
+        # 날짜순 정렬
+        all_actions.sort(key=lambda x: x['date'])
+        
+        if all_actions:
+            # ===== 통합 차트 (기존 스타일과 동일) =====
+            st.subheader("📊 가격 차트 + 모든 액션")
+            
+            fig = go.Figure()
+            
+            # 캔들스틱 차트 (기존 스타일)
+            fig.add_trace(go.Candlestick(
+                x=df.index,
+                open=df['Open'],
+                high=df['High'],
+                low=df['Low'],
+                close=df['Close'],
+                name='가격'
+            ))
+            
+            # MA40/MA200 라인 (기존 스타일)
+            if 'MA40' in df.columns:
+                fig.add_trace(go.Scatter(
+                    x=df.index,
+                    y=df['MA40'],
+                    mode='lines',
+                    line=dict(color='orange', width=1.5),
+                    name='MA40'
+                ))
+            if 'MA200' in df.columns:
+                fig.add_trace(go.Scatter(
+                    x=df.index,
+                    y=df['MA200'],
+                    mode='lines',
+                    line=dict(color='purple', width=1.5),
+                    name='MA200'
+                ))
+            
+            # 롱 첫 진입 (초록 삼각형)
+            long_first = [a for a in all_actions if '롱 진입' in a['action']]
+            if long_first:
+                fig.add_trace(go.Scatter(
+                    x=[a['date'] for a in long_first],
+                    y=[a['price'] for a in long_first],
+                    mode='markers',
+                    name='🟢 롱 진입',
+                    marker=dict(color='limegreen', size=14, symbol='triangle-up',
+                                line=dict(color='darkgreen', width=1)),
+                    text=[f"🟢 롱 진입<br>${a['price']:,.0f}" for a in long_first],
+                    hovertemplate='%{text}<extra></extra>'
+                ))
+            
+            # 물타기 (연초록 원)
+            water_actions = [a for a in all_actions if '물타기' in a['action']]
+            if water_actions:
+                fig.add_trace(go.Scatter(
+                    x=[a['date'] for a in water_actions],
+                    y=[a['price'] for a in water_actions],
+                    mode='markers',
+                    name='🔵 물타기',
+                    marker=dict(color='lightgreen', size=10, symbol='circle',
+                                line=dict(color='green', width=1)),
+                    text=[f"{a['action']}<br>${a['price']:,.0f}" for a in water_actions],
+                    hovertemplate='%{text}<extra></extra>'
+                ))
+            
+            # 롱 익절 (금색 별)
+            long_profits = [a for a in all_actions if '롱 익절' in a['action']]
+            if long_profits:
+                fig.add_trace(go.Scatter(
+                    x=[a['date'] for a in long_profits],
+                    y=[a['price'] for a in long_profits],
+                    mode='markers',
+                    name='🟡 롱 익절',
+                    marker=dict(color='gold', size=16, symbol='star',
+                                line=dict(color='orange', width=1)),
+                    text=[f"🟡 롱 익절 ({a.get('return', 0):+.1f}%)<br>${a['price']:,.0f}" for a in long_profits],
+                    hovertemplate='%{text}<extra></extra>'
+                ))
+            
+            # 롱 손절 (빨간 X)
+            long_stops = [a for a in all_actions if '롱 손절' in a['action']]
+            if long_stops:
+                fig.add_trace(go.Scatter(
+                    x=[a['date'] for a in long_stops],
+                    y=[a['price'] for a in long_stops],
+                    mode='markers',
+                    name='🔴 롱 손절',
+                    marker=dict(color='red', size=14, symbol='x',
+                                line=dict(color='darkred', width=2)),
+                    text=[f"🔴 롱 손절 ({a.get('return', 0):+.1f}%)<br>${a['price']:,.0f}" for a in long_stops],
+                    hovertemplate='%{text}<extra></extra>'
+                ))
+            
+            # 숏 헷징 진입 (보라 역삼각형)
+            short_entries = [a for a in all_actions if '숏 헷징 진입' in a['action']]
+            if short_entries:
+                fig.add_trace(go.Scatter(
+                    x=[a['date'] for a in short_entries],
+                    y=[a['price'] for a in short_entries],
+                    mode='markers',
+                    name='🟣 숏 진입',
+                    marker=dict(color='mediumpurple', size=12, symbol='triangle-down',
+                                line=dict(color='darkviolet', width=1)),
+                    text=[f"🟣 숏 헷징 진입<br>${a['price']:,.0f}<br>투자금: ${a['invested']:,.0f}" for a in short_entries],
+                    hovertemplate='%{text}<extra></extra>'
+                ))
+            
+            # 숏 업그레이드 (청록 다이아몬드)
+            short_upgrades = [a for a in all_actions if '업그레이드' in a['action']]
+            if short_upgrades:
+                fig.add_trace(go.Scatter(
+                    x=[a['date'] for a in short_upgrades],
+                    y=[a['price'] for a in short_upgrades],
+                    mode='markers',
+                    name='🔄 숏 업그레이드',
+                    marker=dict(color='cyan', size=12, symbol='diamond',
+                                line=dict(color='darkcyan', width=1)),
+                    text=[f"🔄 숏 업그레이드 ({a.get('return', 0):+.1f}%)<br>${a['price']:,.0f}" for a in short_upgrades],
+                    hovertemplate='%{text}<extra></extra>'
+                ))
+            
+            # 숏 익절/손절 (연두/진홍)
+            short_tp = [a for a in all_actions if '숏 숏익절' in a['action']]
+            if short_tp:
+                fig.add_trace(go.Scatter(
+                    x=[a['date'] for a in short_tp],
+                    y=[a['price'] for a in short_tp],
+                    mode='markers',
+                    name='💰 숏 익절',
+                    marker=dict(color='lime', size=12, symbol='diamond',
+                                line=dict(color='green', width=1)),
+                    text=[f"💰 숏 익절 ({a.get('return', 0):+.1f}%)<br>${a['price']:,.0f}" for a in short_tp],
+                    hovertemplate='%{text}<extra></extra>'
+                ))
+            
+            short_sl = [a for a in all_actions if '숏 숏손절' in a['action']]
+            if short_sl:
+                fig.add_trace(go.Scatter(
+                    x=[a['date'] for a in short_sl],
+                    y=[a['price'] for a in short_sl],
+                    mode='markers',
+                    name='⛔ 숏 손절',
+                    marker=dict(color='crimson', size=12, symbol='diamond',
+                                line=dict(color='darkred', width=1)),
+                    text=[f"⛔ 숏 손절 ({a.get('return', 0):+.1f}%)<br>${a['price']:,.0f}" for a in short_sl],
+                    hovertemplate='%{text}<extra></extra>'
+                ))
+            
+            # 숏 롱청산시 (주황)
+            short_long_exit = [a for a in all_actions if '롱청산시' in a['action']]
+            if short_long_exit:
+                fig.add_trace(go.Scatter(
+                    x=[a['date'] for a in short_long_exit],
+                    y=[a['price'] for a in short_long_exit],
+                    mode='markers',
+                    name='🔚 숏 롱청산시',
+                    marker=dict(color='orange', size=12, symbol='diamond',
+                                line=dict(color='darkorange', width=1)),
+                    text=[f"🔚 숏 롱청산시 ({a.get('return', 0):+.1f}%)<br>${a['price']:,.0f}" for a in short_long_exit],
+                    hovertemplate='%{text}<extra></extra>'
+                ))
+            
+            fig.update_layout(
+                height=700,
+                xaxis_title="날짜",
+                yaxis_title="가격 ($)",
+                hovermode='x unified',
+                xaxis_rangeslider_visible=False,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # ===== 범례 설명 =====
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("""
+                **🟢 롱 액션:**
+                - 🔺 초록 삼각형: 롱 첫 진입
+                - 🟢 연초록 원: 물타기
+                - ⭐ 금색 별: 롱 익절
+                - ❌ 빨간 X: 롱 손절
+                """)
+            with col2:
+                st.markdown("""
+                **🟣 숏 액션:**
+                - 🔻 보라 역삼각형: 숏 헷징 진입
+                - 💎 청록 다이아: 숏 업그레이드
+                - 💎 연두 다이아: 숏 익절
+                - 💎 진홍 다이아: 숏 손절
+                - 💎 주황 다이아: 숏 롱청산시
+                """)
+            
+            st.divider()
+            
+            # ===== 통합 타임라인 테이블 =====
+            st.subheader("📋 액션 타임라인 (최신순)")
+            
+            # 최신순 정렬
+            all_actions_sorted = sorted(all_actions, key=lambda x: x['date'], reverse=True)
+            
+            timeline_data = []
+            for a in all_actions_sorted:
+                row = {
+                    '날짜': a['date'].strftime('%Y-%m-%d %H:%M'),
+                    '액션': a['action'],
+                    '가격': f"${a['price']:,.2f}",
+                    '포지션': a['position'],
+                    '투자금': f"${a['invested']:,.0f}" if 'invested' in a else '-'
+                }
+                if 'return' in a:
+                    row['수익률'] = f"{a['return']:+.1f}%"
+                else:
+                    row['수익률'] = '-'
+                timeline_data.append(row)
+            
+            timeline_df = pd.DataFrame(timeline_data)
+            st.dataframe(timeline_df, use_container_width=True, hide_index=True)
+            
+            # 통계 요약
+            st.divider()
+            st.subheader("📊 액션 통계")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                long_entry_count = len([a for a in all_actions if '롱 진입' in a['action']])
+                st.metric("롱 첫 진입", f"{long_entry_count}회")
+            with col2:
+                water_count = len([a for a in all_actions if '물타기' in a['action']])
+                st.metric("물타기", f"{water_count}회")
+            with col3:
+                hedge_count = len([a for a in all_actions if '숏 헷징 진입' in a['action']])
+                st.metric("숏 헷징", f"{hedge_count}회")
+            with col4:
+                upgrade_count = len([a for a in all_actions if '업그레이드' in a['action']])
+                st.metric("업그레이드", f"{upgrade_count}회")
+        else:
+            st.info("거래 내역이 없습니다.")
+    
+    # ===== 탭 3: 패턴 분석 (주식과 동일한 형식) =====
+    with tab3:
         st.header("🔬 패턴 발생 분석")
         
         st.markdown("""
@@ -805,8 +1396,8 @@ def main():
         with col4:
             st.metric("손절 기준", f"{stop_loss}%")
     
-    # ===== 탭 3: RSI 분석 =====
-    with tab3:
+    # ===== 탭 4: RSI 분석 =====
+    with tab4:
         st.header("📈 RSI 기준 분석")
         
         st.markdown(f"""
@@ -906,8 +1497,8 @@ def main():
                           annotation_text=f"과매수 ({rsi_overbought})")
         st.plotly_chart(fig_hist, use_container_width=True)
     
-    # ===== 탭 3: 매수/매도 시그널 =====
-    with tab4:
+    # ===== 탭 5: 매수/매도 시그널 =====
+    with tab5:
         st.header("🎯 매수/매도 시그널 분석")
         
         st.markdown(f"""
@@ -1086,8 +1677,8 @@ def main():
             
             st.dataframe(trade_df, use_container_width=True, hide_index=True)
     
-    # ===== 탭 4: 데이터 확인 =====
-    with tab5:
+    # ===== 탭 6: 데이터 확인 =====
+    with tab6:
         st.header("🔍 데이터 확인")
         
         cache_dir = project_root / "data" / "cache"
