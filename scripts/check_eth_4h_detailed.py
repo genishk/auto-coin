@@ -7,7 +7,7 @@ GitHub Actions용 ETH 4시간봉 상세 시그널 체크 스크립트
 
 ETH 최적 파라미터:
 - RSI: 35/40 → 85/55
-- 헷징: threshold=2, upgrade=5, ratio=50%, profit=5%, stop=-10%
+- 헷징: threshold=2, upgrade=5, ratio=50%, profit=8%, stop=-15%
 """
 import sys
 sys.path.insert(0, '.')
@@ -53,7 +53,7 @@ def find_buy_signals(df, rsi_oversold=35, rsi_exit=40, use_golden_cross=False):
     
     return buy_signals
 
-def find_sell_signals(df, rsi_overbought=80, rsi_exit=55):
+def find_sell_signals(df, rsi_overbought=85, rsi_exit=55):  # ETH 최적값: 85
     sell_signals = []
     in_overbought = False
     last_signal_date = None
@@ -80,7 +80,7 @@ def find_sell_signals(df, rsi_overbought=80, rsi_exit=55):
 
 def simulate_current_position(df, buy_signals, sell_signals, stop_loss=-25, 
                               hedge_threshold=2, hedge_upgrade_interval=5, 
-                              hedge_profit=5, hedge_stop=-10):  # ETH 최적값
+                              hedge_profit=8, hedge_stop=-15):  # ETH 대시보드와 일치
     """현재 포지션 상태 시뮬레이션 (헷징 포함)"""
     all_buy_dates = {bs['confirm_date']: bs for bs in buy_signals}
     all_sell_dates = {ss['confirm_date']: ss for ss in sell_signals}
@@ -229,7 +229,7 @@ def main():
     # 현재 포지션 시뮬레이션 (헷징 포함)
     current_positions, trades, current_hedge, hedge_trades = simulate_current_position(
         df, buy_signals, sell_signals, -25,
-        hedge_threshold=2, hedge_upgrade_interval=5, hedge_profit=5, hedge_stop=-10  # ETH 최적값
+        hedge_threshold=2, hedge_upgrade_interval=5, hedge_profit=8, hedge_stop=-15  # ETH 대시보드와 일치
     )
     
     # 시그널 체크 (최근 시점)
@@ -335,10 +335,10 @@ def main():
             print(f'   미실현: {hedge_return:+.1f}% (${hedge_unrealized:+,.0f})')
             
             # 익절/손절 라인
-            target_price = hedge_entry_price * (1 - 5 / 100)  # ETH: +5%
-            stop_price_hedge = hedge_entry_price * (1 - (-10) / 100)  # ETH: -10%
-            print(f'   익절가: ${target_price:,.2f} (+5%)')  # ETH
-            print(f'   손절가: ${stop_price_hedge:,.2f} (-10%)')  # ETH
+            target_price = hedge_entry_price * (1 - 8 / 100)  # ETH: +8%
+            stop_price_hedge = hedge_entry_price * (1 - (-15) / 100)  # ETH: -15%
+            print(f'   익절가: ${target_price:,.2f} (+8%)')  # ETH
+            print(f'   손절가: ${stop_price_hedge:,.2f} (-15%)')  # ETH
         elif has_position and water_count >= 2:
             print()
             print(f'⚪ 숏 헷징 없음 (MACD >= 0 이었거나 조건 미충족)')
